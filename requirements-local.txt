@@ -1,0 +1,7 @@
+# Optional heavier local stack (CrewAI + MCP). Free cloud hosts use requirements.txt.
+-r requirements.txt
+wikipedia>=1.4.0
+reportlab>=4.0.0
+crewai>=0.80.0
+litellm>=1.0.0
+mcp>=1.0.0

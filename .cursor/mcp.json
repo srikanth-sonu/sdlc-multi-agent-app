@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "sdlc-internal": {
+      "command": "python",
+      "args": ["${workspaceFolder}/mcp_server/server.py"],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "MCP_TRANSPORT": "stdio"
+      }
+    },
+    "sdlc-internal-http": {
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
