@@ -91,7 +91,7 @@ def recent_traces(limit: int = 5) -> list:
 
 @mcp.tool()
 def list_agents() -> list:
-    """List the 5 SDLC agents and their roles."""
+    """List the 6 SDLC agents and their roles."""
     from agents.crew_pipeline import AGENTS
 
     return [{"key": a["key"], "name": a["name"], "role": a["role"]} for a in AGENTS]

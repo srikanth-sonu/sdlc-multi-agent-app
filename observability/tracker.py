@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -44,8 +45,8 @@ def new_run_id() -> str:
 
 def _score_metrics(requirement: str, output: str) -> tuple[float, float, float]:
     """Heuristic metrics for relevancy / hallucination risk / confidence."""
-    req_tokens = set(requirement.lower().split())
-    out_tokens = set(output.lower().split())
+    req_tokens = set(re.findall(r"[a-z0-9]+", requirement.lower()))
+    out_tokens = set(re.findall(r"[a-z0-9]+", output.lower()))
     if not out_tokens:
         return 0.1, 0.9, 0.1
     overlap = len(req_tokens & out_tokens) / max(len(req_tokens), 1)
@@ -73,9 +74,18 @@ class ObservabilityTracker:
     def __init__(self, requirement: str):
         self.run = RunTrace(run_id=new_run_id(), requirement=requirement, started_at=time.time())
 
-    def record_agent(self, agent: str, role: str, input_text: str, output: str, notes: str = "") -> AgentTrace:
-        started = time.time() - 0.01
+    def record_agent(
+        self,
+        agent: str,
+        role: str,
+        input_text: str,
+        output: str,
+        notes: str = "",
+        latency_sec: float | None = None,
+    ) -> AgentTrace:
+        # Recorded after the run, so timestamps are approximate; latency is 0 when not measured.
         ended = time.time()
+        started = ended - (latency_sec or 0.0)
         relevancy, hallucination_risk, confidence = _score_metrics(self.run.requirement, output)
         trace = AgentTrace(
             run_id=self.run.run_id,

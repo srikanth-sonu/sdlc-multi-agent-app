@@ -1,6 +1,6 @@
 # Healthcare SDLC Automation — Project Agenda
 
-Streamlit app that turns a healthcare software requirement into a full SDLC pack using **5 sequential AI agents**, domain RAG, Wikipedia context, observability metrics, and user feedback.
+Streamlit app that turns a healthcare software requirement into a full SDLC pack using **6 sequential AI agents**, domain RAG, Wikipedia context, observability metrics, and user feedback.
 
 ---
 
@@ -12,7 +12,8 @@ Given a business / functional / non-functional requirement (e.g. clinic EHR appo
 2. Solution architecture (components, data, APIs, HIPAA/security)
 3. Implementation design (Python + Streamlit)
 4. QA plan (pytest + automation cases)
-5. Release notes (Word `.docx`)
+5. DevOps plan (CI/CD, Docker, deployment, monitoring)
+6. Release notes (Word `.docx`)
 
 ---
 
@@ -41,7 +42,8 @@ Open `http://localhost:8501`.
 | 2 | Solution Architect    | `architect` | Components, data model, APIs, HIPAA, deployment  |
 | 3 | Full-Stack Developer  | `developer` | Python backend + Streamlit UI design/snippets    |
 | 4 | QA Engineer           | `tester`    | pytest units + automation (happy + edge paths)   |
-| 5 | Technical Writer      | `docs`      | SDLC summary + release notes                     |
+| 5 | DevOps Engineer       | `devops`    | CI/CD, Dockerfile, deployment, monitoring, rollback |
+| 6 | Technical Writer      | `docs`      | SDLC summary + release notes                     |
 
 **Execution engines** (`agents/crew_pipeline.py`):
 
@@ -61,7 +63,7 @@ User enters requirement (+ optional Wikipedia topic)
 app.py  →  run_sdlc_pipeline()
         │
         ├─ build_context()          # Domain PDFs (BM25) + Wikipedia
-        ├─ CrewAI or Groq agents    # 5 sequential roles
+        ├─ CrewAI or Groq agents    # 6 sequential roles
         ├─ ObservabilityTracker     # scores + traces.jsonl
         └─ write_release_notes()    # outputs/release_notes_<run_id>.docx
         │
@@ -119,7 +121,7 @@ Persisted per agent/run in `outputs/traces.jsonl`.
 1. Set Wikipedia topic in sidebar (optional)  
 2. Enter / edit healthcare requirement  
 3. Click **Generate full SDLC**  
-4. Review five agent artifacts  
+4. Review six agent artifacts  
 5. Check observability metrics  
 6. Inspect RAG / Wikipedia context  
 7. Submit agent feedback for the next run  

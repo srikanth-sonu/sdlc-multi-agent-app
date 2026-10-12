@@ -8,12 +8,12 @@ sdk_version: 1.40.1
 app_file: app.py
 pinned: false
 license: mit
-short_description: 5-agent healthcare SDLC pack with RAG, metrics, and Word export
+short_description: 6-agent healthcare SDLC pack with RAG, metrics, and Word export
 ---
 
 # Healthcare SDLC Automation
 
-Streamlit app that turns a healthcare software requirement into a full SDLC pack using 5 sequential AI agents, domain RAG, Wikipedia context, observability metrics, and user feedback.
+Streamlit app that turns a healthcare software requirement into a full SDLC pack using 6 sequential AI agents, domain RAG, Wikipedia context, observability metrics, and user feedback.
 
 ## Live deploy (free)
 

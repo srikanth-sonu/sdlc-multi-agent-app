@@ -1,7 +1,9 @@
 """SDLC multi-agent pipeline (CrewAI when available, Groq sequential fallback)."""
 from __future__ import annotations
 
+import importlib.util
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +82,17 @@ AGENTS = [
         ),
     },
     {
+        "key": "devops",
+        "name": "DevOps Engineer",
+        "role": "DevOps Engineer",
+        "system": (
+            "You are a healthcare DevOps Engineer. Produce a CI/CD pipeline "
+            "(GitHub Actions YAML), Dockerfile, environment and secrets strategy, "
+            "infrastructure/deployment plan, monitoring and alerting, backup and "
+            "rollback procedures, with HIPAA-aware controls for PHI."
+        ),
+    },
+    {
         "key": "docs",
         "name": "Technical Writer",
         "role": "Technical Writer",
@@ -95,9 +108,13 @@ def _groq_client() -> Groq:
     return Groq(api_key=_resolve_groq_api_key())
 
 
-def _chat(client: Groq, system: str, user: str) -> str:
-    import time
+def _empty_response_error(resp: Any) -> RuntimeError:
+    return RuntimeError(
+        f"Model returned an empty response (finish_reason={resp.choices[0].finish_reason})"
+    )
 
+
+def _chat(client: Groq, system: str, user: str) -> str:
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
     last_exc: Exception | None = None
     for attempt in range(4):
@@ -110,7 +127,6 @@ def _chat(client: Groq, system: str, user: str) -> str:
                     {"role": "user", "content": user},
                 ],
             )
-            return (resp.choices[0].message.content or "").strip()
         except Exception as exc:
             last_exc = exc
             msg = str(exc).lower()
@@ -118,6 +134,11 @@ def _chat(client: Groq, system: str, user: str) -> str:
                 time.sleep(5 * (attempt + 1))
                 continue
             raise
+        text = (resp.choices[0].message.content or "").strip()
+        if text:
+            return text
+        # Retry rather than ship a blank section in the release notes.
+        last_exc = _empty_response_error(resp)
     raise last_exc  # type: ignore[misc]
 
 
@@ -165,8 +186,6 @@ def _make_crewai_llm():
             self._client = Groq(api_key=api_key)
 
         def call(self, messages, tools=None, callbacks=None, available_functions=None, from_task=None, from_agent=None, response_model=None):
-            import time
-
             cleaned = _clean_messages(messages)
             # Keep free-tier Groq TPM under ~6k tokens (~4 chars/token rough)
             total = 0
@@ -188,7 +207,10 @@ def _make_crewai_llm():
                         messages=cleaned,
                         max_tokens=1200,
                     )
-                    return (resp.choices[0].message.content or "").strip()
+                    text = (resp.choices[0].message.content or "").strip()
+                    if text:
+                        return text
+                    last_exc = _empty_response_error(resp)
                 except Exception as exc:
                     last_exc = exc
                     msg = str(exc).lower()
@@ -275,11 +297,19 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[: max_chars - 20] + "\n...[truncated]..."
 
 
-def _run_with_groq(requirement: str, context: str) -> dict[str, str]:
+def _prior_outputs(artifacts: dict[str, str], budget: int = 3600) -> str:
+    """Split the budget across all prior agents so later ones are not cut off."""
+    if not artifacts:
+        return "(none yet)"
+    per_agent = budget // len(artifacts)
+    return "\n\n".join(f"### {name}\n{_truncate(out, per_agent)}" for name, out in artifacts.items())
+
+
+def _run_with_groq(requirement: str, context: str) -> tuple[dict[str, str], dict[str, float]]:
     """Fallback sequential multi-agent flow using Groq directly."""
     client = _groq_client()
     artifacts: dict[str, str] = {}
-    history = ""
+    timings: dict[str, float] = {}
     context = _truncate(context, 2500)
     requirement = _truncate(requirement, 1200)
     for spec in AGENTS:
@@ -288,30 +318,36 @@ def _run_with_groq(requirement: str, context: str) -> dict[str, str]:
             f"Healthcare software requirement:\n{requirement}\n\n"
             f"Domain + Wikipedia context:\n{context}\n\n"
             f"{_truncate(fb, 600)}\n\n"
-            f"Prior agent outputs:\n{_truncate(history, 3500) or '(none yet)'}\n\n"
+            f"Prior agent outputs:\n{_prior_outputs(artifacts)}\n\n"
             f"Produce your deliverable as {spec['role']}."
         )
-        output = _chat(client, spec["system"], user)
+        started = time.time()
+        try:
+            output = _chat(client, spec["system"], user)
+        except Exception as exc:
+            raise RuntimeError(f"{spec['name']} failed: {exc}") from exc
+        timings[spec["name"]] = time.time() - started
         artifacts[spec["name"]] = output
-        history += f"\n\n### {spec['name']}\n{_truncate(output, 1200)}"
-    return artifacts
+    return artifacts, timings
 
 
 def run_sdlc_pipeline(requirement: str, wiki_topic: str = "electronic health record") -> dict[str, Any]:
     tracker = ObservabilityTracker(requirement)
     context = build_context(requirement, wiki_topic=wiki_topic)
     engine = "groq-sequential"
+    timings: dict[str, float] = {}
 
     try:
-        try:
-            import crewai  # noqa: F401
-
-            artifacts = _run_with_crewai(requirement, context)
-            engine = "crewai"
-        except Exception as crew_exc:
-            # Prefer CrewAI; fall back to Groq sequential if CrewAI fails at runtime
-            artifacts = _run_with_groq(requirement, context)
-            engine = f"groq-sequential (crewai_error={type(crew_exc).__name__}: {crew_exc})"
+        if importlib.util.find_spec("crewai") is None:
+            artifacts, timings = _run_with_groq(requirement, context)
+        else:
+            try:
+                artifacts = _run_with_crewai(requirement, context)
+                engine = "crewai"
+            except Exception as crew_exc:
+                # Prefer CrewAI; fall back to Groq sequential if CrewAI fails at runtime
+                artifacts, timings = _run_with_groq(requirement, context)
+                engine = f"groq-sequential (crewai_error={type(crew_exc).__name__}: {crew_exc})"
 
         for spec in AGENTS:
             output = artifacts.get(spec["name"], "")
@@ -321,6 +357,7 @@ def run_sdlc_pipeline(requirement: str, wiki_topic: str = "electronic health rec
                 input_text=requirement,
                 output=output,
                 notes=f"engine={engine}",
+                latency_sec=timings.get(spec["name"]),
             )
 
         docx_path = OUTPUT_DIR / f"release_notes_{tracker.run.run_id}.docx"

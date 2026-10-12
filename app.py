@@ -1,8 +1,10 @@
 """Streamlit UI for healthcare SDLC multi-agent automation."""
 from __future__ import annotations
 
+import hmac
 import os
 import sys
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -18,7 +20,7 @@ def _apply_cloud_secrets() -> None:
         secrets = st.secrets
     except Exception:
         return
-    for key in ("GROQ_API_KEY", "GROQ_MODEL"):
+    for key in ("GROQ_API_KEY", "GROQ_MODEL", "APP_PASSWORD", "MAX_RUNS_PER_HOUR"):
         try:
             value = secrets.get(key) if hasattr(secrets, "get") else secrets[key]
         except Exception:
@@ -31,13 +33,38 @@ st.set_page_config(page_title="SDLC Automation", page_icon="🏥", layout="wide"
 _apply_cloud_secrets()
 
 from agents.crew_pipeline import run_sdlc_pipeline
-from feedback.store import load_feedback, save_feedback
+from feedback.store import MAX_COMMENT_CHARS, load_feedback, save_feedback
+
+MAX_RUNS_PER_HOUR = int(os.getenv("MAX_RUNS_PER_HOUR", "20"))
+
+
+@st.cache_resource
+def _run_log() -> list[float]:
+    """Run timestamps shared by all sessions, to cap spend on the Groq key."""
+    return []
+
+
+def _claim_run() -> bool:
+    log = _run_log()
+    cutoff = time.time() - 3600
+    log[:] = [t for t in log if t > cutoff]
+    if len(log) >= MAX_RUNS_PER_HOUR:
+        return False
+    log.append(time.time())
+    return True
+
 
 st.title("Healthcare SDLC Automation")
-st.caption("5-agent SDLC flow · Domain RAG · Wikipedia · Observability · Feedback")
+st.caption("6-agent SDLC flow · Domain RAG · Wikipedia · Observability · Feedback")
 
 with st.sidebar:
     st.header("Settings")
+    app_password = os.getenv("APP_PASSWORD", "")
+    if app_password:
+        entered = st.text_input("App password", type="password")
+        if not hmac.compare_digest(entered.encode(), app_password.encode()):
+            st.info("Enter the app password to continue.")
+            st.stop()
     wiki_topic = st.text_input("Wikipedia topic", value="electronic health record")
     st.markdown(
         """
@@ -46,7 +73,8 @@ with st.sidebar:
 2. Solution Architect  
 3. Full-Stack Developer (Python + Streamlit)  
 4. QA Engineer  
-5. Technical Writer (Word release notes)
+5. DevOps Engineer (CI/CD + deployment)  
+6. Technical Writer (Word release notes)
 """
     )
     prior = load_feedback(10)
@@ -81,8 +109,10 @@ if run_clicked:
         )
     elif not requirement.strip():
         st.error("Please enter a requirement.")
+    elif not _claim_run():
+        st.error(f"Hourly limit of {MAX_RUNS_PER_HOUR} runs reached for this app. Please try again later.")
     else:
-        with st.spinner("Running 5-agent SDLC crew (this may take a few minutes)..."):
+        with st.spinner("Running 6-agent SDLC crew (this may take a few minutes)..."):
             result = run_sdlc_pipeline(requirement.strip(), wiki_topic=wiki_topic.strip() or "electronic health record")
         st.session_state["last_result"] = result
 
@@ -160,11 +190,16 @@ These are heuristic audit scores for traceability (not model-native logits).
                 "Solution Architect",
                 "Full-Stack Developer",
                 "QA Engineer",
+                "DevOps Engineer",
                 "Technical Writer",
             ]
             agent = st.selectbox("Agent", agents)
             rating = st.slider("Rating", 1, 5, 4)
-            comment = st.text_input("Feedback comment", placeholder="Be more specific about HIPAA controls")
+            comment = st.text_input(
+                "Feedback comment",
+                placeholder="Be more specific about HIPAA controls",
+                max_chars=MAX_COMMENT_CHARS,
+            )
             if st.button("Submit feedback"):
                 excerpt = result.get("artifacts", {}).get(agent, "")[:500]
                 save_feedback(result["run_id"], agent, rating, comment, excerpt)
