@@ -5,10 +5,11 @@ import importlib.util
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from dotenv import load_dotenv
 from groq import Groq
+from groq.types.chat import ChatCompletionMessageParam
 
 from feedback.store import feedback_prompt_for_agent
 from observability.tracker import ObservabilityTracker
@@ -167,7 +168,7 @@ def _clean_messages(messages: Any) -> list[dict[str, str]]:
 
 def _make_crewai_llm():
     """CrewAI BaseLLM backed by Groq SDK (avoids LiteLLM cache_breakpoint bug)."""
-    from crewai.llms.base_llm import BaseLLM
+    from crewai.llms.base_llm import BaseLLM  # pyright: ignore[reportMissingImports]  # optional dependency
 
     api_key = _resolve_groq_api_key()
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").replace("groq/", "")
@@ -204,7 +205,7 @@ def _make_crewai_llm():
                     resp = self._client.chat.completions.create(
                         model=self.model,
                         temperature=self.temperature or 0.3,
-                        messages=cleaned,
+                        messages=cast(list[ChatCompletionMessageParam], cleaned),
                         max_tokens=1200,
                     )
                     text = (resp.choices[0].message.content or "").strip()
@@ -233,7 +234,7 @@ def _make_crewai_llm():
 
 def _run_with_crewai(requirement: str, context: str) -> dict[str, str]:
     """Preferred path: native CrewAI sequential crew."""
-    from crewai import Agent, Crew, Process, Task
+    from crewai import Agent, Crew, Process, Task  # pyright: ignore[reportMissingImports]  # optional dependency
 
     llm = _make_crewai_llm()
     context = _truncate(context, 2500)
@@ -251,7 +252,7 @@ def _run_with_crewai(requirement: str, context: str) -> dict[str, str]:
         )
 
     tasks: list[Task] = []
-    for i, spec in enumerate(AGENTS):
+    for spec in AGENTS:
         fb = _truncate(feedback_prompt_for_agent(spec["role"]), 600)
         prior = ""
         if tasks:
